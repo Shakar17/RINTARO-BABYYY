@@ -337,7 +337,8 @@ function disconnect(botNumber, guildIdToDisconnect) {
 }
 
 function attachBot(bot) {
-  if (!bot.token || bot.token.startsWith('replace-with-')) {
+  const token = typeof bot.token === 'string' ? bot.token.trim() : '';
+  if (!token || token.startsWith('replace-with-')) {
     bots.push({ ...bot, client: null, status: 'missing-token', statusMessage: 'Add this bot token in Render.' });
     addLog('error', `Bot ${bot.number} is not started: DISCORD_TOKEN_${bot.number} is missing in Render.`);
     return;
@@ -354,14 +355,28 @@ function attachBot(bot) {
     addLog('info', `Bot ${bot.number} login successful as ${readyClient.user.tag}. Servers: ${readyClient.guilds.cache.size}.`);
   });
 
+  client.on('error', (error) => {
+    botState.status = 'error';
+    botState.statusMessage = error.message;
+    addLog('error', `Bot ${bot.number} Discord client error: ${error.message}.`);
+  });
+
   client.on('voiceStateUpdate', (oldState, newState) => {
     if (newState.id !== client.user?.id) return;
     addLog('info', `Bot ${bot.number} Discord voice state: ${oldState.channelId || 'none'} -> ${newState.channelId || 'none'}.`);
   });
 
-  client.login(bot.token).catch((error) => {
+  const loginTimeout = setTimeout(() => {
+    if (botState.status !== 'online') {
+      botState.status = 'error';
+      botState.statusMessage = 'Discord login timed out';
+      addLog('error', `Bot ${bot.number} login timed out. Check Render networking and Discord availability.`);
+    }
+  }, 30_000);
+  client.login(token).then(() => clearTimeout(loginTimeout)).catch((error) => {
+    clearTimeout(loginTimeout);
     botState.status = 'error';
-    botState.statusMessage = error.code === 4004 ? 'Invalid token' : error.message;
+    botState.statusMessage = error.code === 4004 ? 'Invalid or revoked token' : error.message;
     addLog('error', `Bot ${bot.number} login failed: ${botState.statusMessage}.`);
   });
 }
